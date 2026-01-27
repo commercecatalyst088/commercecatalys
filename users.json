@@ -1,5 +1,5 @@
 {
-  "admin@meesho.com": {
+  "admin@test.com": {
     "password": "Admin@123",
     "expiry": "2099-12-31",
     "device": ""
