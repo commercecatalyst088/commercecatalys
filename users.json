@@ -1,7 +1,9 @@
 {
-  "admin@test.com": {
-    "password": "Admin@123",
+  "admin": {
+    "email": "admin@gmail.com",
+    "password": "admin@123",
+    "role": "admin",
     "expiry": "2099-12-31",
-    "device": ""
+    "active": true
   }
 }
