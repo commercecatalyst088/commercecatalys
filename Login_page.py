@@ -1,13 +1,17 @@
 import streamlit as st
+import json
+import os
 import hashlib
+import platform
+from datetime import datetime
 
 # =========================
-# PAGE CONFIG (SIDEBAR LOCK)
+# PAGE CONFIG
 # =========================
 st.set_page_config(
-    page_title="Meesho Data Analysing Dashboard",
+    page_title="Secure Client Dashboard",
     layout="wide",
-    initial_sidebar_state="collapsed"  # 🔒 login se pehle sidebar band
+    initial_sidebar_state="collapsed"
 )
 
 # =========================
@@ -15,114 +19,137 @@ st.set_page_config(
 # =========================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-
-if "user_role" not in st.session_state:
-    st.session_state.user_role = None
-
-# =========================
-# PASSWORD HASH FUNCTION
-# =========================
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+if "user_email" not in st.session_state:
+    st.session_state.user_email = None
+if "device_id" not in st.session_state:
+    st.session_state.device_id = None
 
 # =========================
-# USERS DATABASE (STATIC)
+# FILE
 # =========================
-USERS = {
-    "admin@meesho.com": {
-        "password": hash_password("Admin@123"),
-        "role": "admin"
-    },
-    "client1@meesho.com": {
-        "password": hash_password("Client@123"),
-        "role": "client"
-    },
-    "client2@meesho.com": {
-        "password": hash_password("Client@123"),
-        "role": "client"
-    },
-    "client3@meesho.com": {
-        "password": hash_password("Client@123"),
-        "role": "client"
-    },
-    "client4@meesho.com": {
-        "password": hash_password("Client@123"),
-        "role": "client"
-    },
-    "client5@meesho.com": {
-        "password": hash_password("Client@123"),
-        "role": "client"
-    }
-}
+USER_FILE = "users.json"
+
+# =========================
+# HELPERS
+# =========================
+def hash_pw(p):
+    return hashlib.sha256(p.encode()).hexdigest()
+
+def load_users():
+    with open(USER_FILE, "r") as f:
+        return json.load(f)
+
+def save_users(data):
+    with open(USER_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def device_fingerprint():
+    base = platform.system() + platform.machine() + platform.processor()
+    return hashlib.sha256(base.encode()).hexdigest()
+
+def is_expired(date_str):
+    today = datetime.today().date()
+    expiry = datetime.strptime(date_str, "%Y-%m-%d").date()
+    return today > expiry
 
 # =========================
 # LOGIN PAGE
 # =========================
 def login_page():
-    st.markdown(
-        """
-        <style>
-        .login-box {
-            max-width: 400px;
-            margin: auto;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 0 25px rgba(0,0,0,0.15);
-            background-color: #ffffff;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+    st.title("🔐 Login")
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
 
-    with st.container():
-        st.markdown('<div class="login-box">', unsafe_allow_html=True)
-        st.markdown("## 🔐 Meesho Data Analysing Dashboard")
+    if st.button("Login"):
+        users = load_users()
 
-        email = st.text_input("📧 Email ID")
-        password = st.text_input("🔑 Password", type="password")
+        if email not in users:
+            st.error("Invalid user")
+            return
 
-        if st.button("🚀 LOGIN"):
-            if email in USERS and USERS[email]["password"] == hash_password(password):
-                st.session_state.logged_in = True
-                st.session_state.user_role = USERS[email]["role"]
-                st.success("Login successful")
-                st.rerun()
-            else:
-                st.error("Invalid Email or Password")
+        if users[email]["password"] != password:
+            st.error("Wrong password")
+            return
 
-        st.markdown("</div>", unsafe_allow_html=True)
+        if is_expired(users[email]["expiry"]):
+            st.error("❌ Subscription expired")
+            return
+
+        current_device = device_fingerprint()
+
+        if users[email]["device"] == "":
+            users[email]["device"] = current_device
+            save_users(users)
+
+        elif users[email]["device"] != current_device:
+            st.error("❌ Account already registered on another device")
+            return
+
+        st.session_state.logged_in = True
+        st.session_state.user_email = email
+        st.session_state.device_id = current_device
+        st.success("Login successful")
+        st.rerun()
 
 # =========================
-# LOGIN CHECK (GLOBAL LOCK)
+# GLOBAL LOCK
 # =========================
 if not st.session_state.logged_in:
     login_page()
-    st.stop()  # 🔒 LOGIN KE BINA KUCHH BHI LOAD NAHI HOGA
+    st.stop()
 
 # =========================
-# SIDEBAR (AFTER LOGIN)
+# SIDEBAR
 # =========================
-st.sidebar.success("✅ Logged in")
+st.sidebar.success("Logged in")
+st.sidebar.write(st.session_state.user_email)
 
-if st.session_state.user_role == "admin":
-    st.sidebar.info("👑 Role: Admin")
-else:
-    st.sidebar.info("👤 Role: Client")
-
-if st.sidebar.button("🚪 Logout"):
+if st.sidebar.button("Logout"):
     st.session_state.logged_in = False
-    st.session_state.user_role = None
+    st.session_state.user_email = None
+    st.session_state.device_id = None
     st.rerun()
 
 # =========================
-# MAIN DASHBOARD HOME
+# ADMIN PANEL
 # =========================
-st.title("📊 Meesho Dashboard")
-st.write("Login ke baad hi ye dashboard accessible hai.")
+if st.session_state.user_email == "admin@test.com":
+    st.sidebar.subheader("👑 Admin Panel")
 
-st.success("🎉 Sidebar + Pages ab fully protected hain")
+    users = load_users()
 
+    st.sidebar.markdown("### ➕ Add New User")
+    new_email = st.sidebar.text_input("User Email")
+    new_password = st.sidebar.text_input("Password")
+    new_expiry = st.sidebar.date_input("Expiry Date")
 
+    if st.sidebar.button("Add User"):
+        users[new_email] = {
+            "password": new_password,
+            "expiry": str(new_expiry),
+            "device": ""
+        }
+        save_users(users)
+        st.sidebar.success("User added")
+
+    st.sidebar.markdown("### 🔄 Reset Device")
+    selected = st.sidebar.selectbox("Select User", users.keys())
+
+    if st.sidebar.button("Reset Selected Device"):
+        users[selected]["device"] = ""
+        save_users(users)
+        st.sidebar.success("Device reset done")
+
+    st.sidebar.markdown("### ❌ Remove User")
+    if st.sidebar.button("Delete User"):
+        if selected != "admin@test.com":
+            users.pop(selected)
+            save_users(users)
+            st.sidebar.success("User deleted")
+
+# =========================
+# MAIN DASHBOARD
+# =========================
+st.title("📊 Secure Dashboard")
+st.success("✔ Login, Device Lock & Expiry Active")
