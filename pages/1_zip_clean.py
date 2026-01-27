@@ -10,9 +10,10 @@ import shutil
 import pandas as pd
 import streamlit as st
 
-# 🔐 LOGIN CHECK (YAHI ADD KARNA HAI)
-if "logged_in" not in st.session_state or not st.session_state["logged_in"]:
-    st.warning("🔒 Please login first")
+import streamlit as st
+
+if "logged_in" not in st.session_state or not st.session_state.logged_in:
+    st.warning("Please login")
     st.stop()
 
 # ------------------------------
@@ -263,4 +264,5 @@ st.sidebar.markdown("⬆️ Hide/Show triangle से control करें")
 st.markdown("---")
 st.markdown("**Requirements (recommended)**\n``````")
 st.markdown("Run locally: `pip install -r requirements.txt` and then `streamlit run app.py`")
+
 
