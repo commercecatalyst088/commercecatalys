@@ -1,9 +1,13 @@
-# 📦 Meesho Order Analysis Dashboard — Final Fixed v17
+# 📦 Meesho Order Analysis Dashboard — Final Master v18
 # Fixes:
-# 1. Claims/Recovery Count: NOW IGNORES 0 values. Only counts real entries.
-# 2. Grand Total Box: Restored.
-# 3. True Profit Logic: Preserved.
-# 4. Filters: Logic refined for 'Select All'.
+# 1. SKU Grouping Logic RESTORED from old script (newfile.py).
+#    - Added "Include ALL live-search matches" checkbox.
+#    - Selecting a group now automatically populates the "Selected SKUs" box.
+# 2. All v17 Fixes Retained:
+#    - Claims/Recovery Counts (Ignore Zeros).
+#    - Grand Total Box.
+#    - True Profit Logic.
+#    - Mobile Tooltips.
 # Date: 2026-01-29
 
 import os
@@ -18,12 +22,12 @@ import streamlit as st
 import plotly.express as px
 from PIL import Image
 
-__VERSION__ = "Power By Rehan — v17 (Counts Fixed)"
+__VERSION__ = "Power By Rehan — v18 (Grouping Fixed)"
 
 # ---------------- PAGE SETUP ----------------
 st.set_page_config(layout="wide", page_title=f"📦 Meesho Dashboard — {__VERSION__}")
 st.title(f"📦 Meesho Order Analysis Dashboard — {__VERSION__}")
-st.caption("Fixes: Claims/Recovery Exact Count (Ignoring Zeros) | Grand Total Restored")
+st.caption("v18 Update: SKU Grouping System Fully Restored to Old Logic")
 
 # ---------------- HELPERS ----------------
 def extract_supplier_id_from_filename(filename: str) -> str:
@@ -75,6 +79,7 @@ def _card_html(title, value, bg="#0d47a1", icon="₹", tooltip=None):
 # ---------------- SIDEBAR ----------------
 st.sidebar.header("⚙️ Controls")
 
+# Session state for groups
 if 'sku_groups' not in st.session_state: st.session_state['sku_groups'] = []
 
 supplier_name_input = st.sidebar.text_input("🔹 Supplier Name", value="")
@@ -91,7 +96,7 @@ st.markdown(f"<div style='background-color:#FFEB3B;padding:10px;border-radius:10
 # --- PRODUCT COST INPUT ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("💰 Profit Settings")
-user_product_cost = st.sidebar.number_input("Enter Product Cost (Per Unit) ₹", min_value=0.0, value=0.0, step=10.0, help="Used to calculate Net Profit")
+user_product_cost = st.sidebar.number_input("Enter Product Cost (Per Unit) ₹", min_value=0.0, value=0.0, step=10.0)
 
 if st.sidebar.button("🔄 Reset Filters"):
     for key in list(st.session_state.keys()):
@@ -145,56 +150,85 @@ with st.sidebar.expander("🎛️ Advanced Filters", expanded=True):
     status_opts = ['All', 'Delivered', 'Return', 'RTO', 'Exchange', 'Cancelled', 'Shipped', ""]
     sel_statuses = st.multiselect("Status", status_opts, default=['All'])
     
-    # 2. SKU Grouping
+    # 2. SKU Grouping (RESTORED EXACTLY FROM OLD SCRIPT)
     if sku_col:
-        st.markdown("**SKU Search & Grouping**")
+        st.markdown("**SKU Grouping** — type keyword and click ➕ Add Group")
         skus = sorted([str(x) for x in orders_df[sku_col].dropna().unique().tolist()])
-        
-        sku_search_q = st.text_input("Search SKU keyword", key='sku_search_q')
-        new_group_name = st.text_input("Group name (Optional)", key='sku_new_group_name')
 
-        c_grp1, c_grp2 = st.columns(2)
-        with c_grp1:
+        sku_search_q = st.text_input("Search SKU keyword", value="", key='sku_search_q')
+        
+        if sku_search_q:
+            matches = [s for s in skus if sku_search_q.lower() in s.lower()]
+            st.caption(f"Matches: {len(matches)}")
+        
+        new_group_name = st.text_input("Group name (optional)", value=sku_search_q or "", key='sku_new_group_name')
+
+        col_a, col_b = st.columns([1,1])
+        with col_a:
             if st.button("➕ Add Group"):
-                pattern = (sku_search_q or new_group_name).strip()
+                pattern = (sku_search_q or new_group_name or "").strip()
                 if pattern:
-                    matched = [s for s in skus if pattern.lower() in s.lower()]
-                    if matched:
-                        st.session_state['sku_groups'].append({'name': new_group_name or pattern, 'skus': matched})
+                    matched_skus = [s for s in skus if pattern.lower() in s.lower()]
+                    if matched_skus:
+                        # Add or update logic
+                        found = False
+                        for g in st.session_state['sku_groups']:
+                            if g['name'] == (new_group_name or pattern):
+                                g['skus'] = matched_skus
+                                found = True
+                        if not found:
+                            st.session_state['sku_groups'].append({'name': new_group_name or pattern, 'skus': matched_skus})
                         st.rerun()
-        with c_grp2:
-            if st.button("🧹 Clear All"):
+        with col_b:
+            if st.button("🧹 Clear Groups"):
                 st.session_state['sku_groups'] = []
+                if 'selected_skus' in st.session_state:
+                    del st.session_state['selected_skus']
                 st.rerun()
-        
-        active_skus = []
-        if st.session_state['sku_groups']:
-            grp_labels = [f"{g['name']} ({len(g['skus'])})" for g in st.session_state['sku_groups']]
-            sel_grps = st.multiselect("Select Groups", grp_labels)
-            for label in sel_grps:
-                g_name = label.rsplit(" (", 1)[0]
-                for g in st.session_state['sku_groups']:
-                    if g['name'] == g_name:
-                        active_skus.extend(g['skus'])
-        
-        manual_matches = [s for s in skus if sku_search_q.lower() in s.lower()] if sku_search_q else []
-        final_pool = sorted(list(set(active_skus + manual_matches)))
-        sel_skus = st.multiselect("Selected SKUs", skus, default=final_pool)
+
+        # SHOW GROUPS & SELECTION LOGIC
+        if st.session_state.get('sku_groups'):
+            st.markdown("**Existing SKU Groups**")
+            grp_labels = [f"{i+1}. {g['name']} ({len(g['skus'])})" for i,g in enumerate(st.session_state['sku_groups'])]
+            
+            # THE CRITICAL RESTORED PART:
+            chosen_group_labels = st.multiselect("Select Groups to apply", options=grp_labels, key='sku_group_multiselect')
+            
+            # THE MISSING CHECKBOX RESTORED:
+            select_all_live = st.checkbox("Include ALL live-search matches (if any)", value=True)
+            
+            # Combine Group SKUs + Manual Search Matches
+            selected_from_groups_local = []
+            for label in chosen_group_labels:
+                try:
+                    idx = int(label.split('.',1)[0]) - 1
+                    if 0 <= idx < len(st.session_state['sku_groups']):
+                        selected_from_groups_local.extend(st.session_state['sku_groups'][idx]['skus'])
+                except: continue
+            
+            manual_selected = [s for s in skus if sku_search_q.lower() in s.lower()] if (sku_search_q and select_all_live) else []
+            union_selected = sorted(list(set(selected_from_groups_local + manual_selected)))
+            
+            # This 'default' param forces the update when groups change
+            selected_skus = st.multiselect("Selected SKU(s)", options=skus, default=union_selected, key='selected_skus')
+        else:
+            # Fallback if no groups
+            sku_opts = [s for s in skus if sku_search_q.lower() in s.lower()] if sku_search_q else skus
+            selected_skus = st.multiselect("Selected SKU(s)", options=sku_opts, key='selected_skus')
     else:
-        sel_skus = None
+        selected_skus = None
     
     # 3. Claims & Recovery Filters
     if claims_col:
-        # Get only unique values that are NOT zero
         claims_vals = sorted(orders_df[orders_df[claims_col] != 0][claims_col].unique().tolist())
         st.markdown("---")
-        sel_claims = st.multiselect("📂 Filter Claims (Values)", claims_vals, help="Leave empty to select All (including zeros)")
+        sel_claims = st.multiselect("📂 Filter Claims (Values)", claims_vals, help="Leave empty for All")
     else:
         sel_claims = None
 
     if recovery_col:
         rec_vals = sorted(orders_df[orders_df[recovery_col] != 0][recovery_col].unique().tolist())
-        sel_recovery = st.multiselect("📂 Filter Recovery (Values)", rec_vals, help="Leave empty to select All (including zeros)")
+        sel_recovery = st.multiselect("📂 Filter Recovery (Values)", rec_vals, help="Leave empty for All")
     else:
         sel_recovery = None
 
@@ -236,8 +270,8 @@ if dispatch_date_col and dispatch_range and len(dispatch_range)==2:
 if order_source_col and sel_source:
     df_f = df_f[df_f[order_source_col].astype(str).isin(sel_source)]
 
-if sku_col and sel_skus:
-    df_f = df_f[df_f[sku_col].astype(str).isin(sel_skus)]
+if sku_col and selected_skus:
+    df_f = df_f[df_f[sku_col].astype(str).isin(selected_skus)]
 
 if catalog_id_col and sel_cats:
     df_f = df_f[df_f[catalog_id_col].astype(str).isin(sel_cats)]
@@ -279,18 +313,15 @@ c_can = counts.get('CANCELLED', 0)
 c_shp = counts.get('SHIPPED', 0)
 c_rto = counts.get('RTO', 0)
 
-# FIXED: Count only non-zero values for Claims and Recovery
+# Claims/Recovery Count (Ignoring Zeros)
 c_claim = 0
 if claims_col:
-    # Filter rows where Claims is NOT 0
     c_claim = df_f[df_f[claims_col] != 0].shape[0]
 
 c_rec = 0
 if recovery_col:
-    # Filter rows where Recovery is NOT 0
     c_rec = df_f[df_f[recovery_col] != 0].shape[0]
 
-# FIXED: Grand Total (All filtered rows)
 grand_total_count = len(df_f)
 
 # Card Row 1
@@ -322,9 +353,7 @@ if settle_amt_col:
     a_shp = get_sum('SHIPPED')
     a_rto = df_f[df_f[status_col].astype(str).str.upper() == 'RTO']['RTO Amount'].sum() if 'RTO Amount' in df_f.columns else 0
 
-    # Claims & Recovery Amount (Sum everything)
     a_claims = df_f[claims_col].sum() if claims_col else 0
-    # Recovery is negative in sheet, make it positive for display
     a_rec = abs(df_f[recovery_col].sum()) if recovery_col else 0
 
     shipped_with_total = (a_del + a_can + a_shp) - (abs(a_ret) + abs(a_exc))
@@ -358,25 +387,12 @@ if settle_amt_col:
 st.markdown("---")
 st.subheader("💹 True Profit Analysis (With Calculated Exchange Loss)")
 
-# 1. Calculate Average Return Cost
-# Avg Return Cost = Total Return Loss (Absolute) / Total Return Count
 total_ret_loss_abs = abs(a_ret)
 avg_ret_cost = total_ret_loss_abs / c_ret if c_ret > 0 else 0.0
-
-# 2. Calculate Estimated Exchange Loss
-# Est. Exchange Loss = Exchange Count * Avg Return Cost
 est_exchange_loss = c_exc * avg_ret_cost
-
-# 3. Calculate Total Product Cost (COGS)
-# COGS = Delivered Quantity * User Input Product Cost
 total_cogs = c_del * user_product_cost
-
-# 4. Final Net Profit Calculation
-# Revenue: Delivered Amount
-# Expenses: Return Loss (Actual) + Exchange Loss (Calculated) + Product Cost (COGS)
 final_net_profit = a_del - (total_ret_loss_abs + est_exchange_loss + total_cogs)
 
-# --- DISPLAY PROFIT TABLE ---
 profit_data = {
     "Metric": ["Delivered Revenue (+)", "Return Loss (-)", "Est. Exchange Charge (-)", "Product Cost (COGS) (-)", "FINAL NET PROFIT (=)"],
     "Count/Qty": [c_del, c_ret, c_exc, c_del, "—"],
@@ -385,7 +401,6 @@ profit_data = {
 }
 st.table(pd.DataFrame(profit_data))
 
-# Cards for Profit
 kp1, kp2, kp3 = st.columns(3)
 kp1.markdown(_card_html("Delivered Amount", a_del, "#1b5e20", "✅"), unsafe_allow_html=True)
 kp2.markdown(_card_html("Total Deductions", (total_ret_loss_abs + est_exchange_loss + total_cogs), "#b71c1c", "Expenses"), unsafe_allow_html=True)
@@ -395,12 +410,8 @@ kp3.markdown(_card_html("FINAL TRUE PROFIT", final_net_profit, "#0d47a1", "💰"
 st.markdown("---")
 st.subheader("📊 Return & Exchange Percentage")
 
-if c_del > 0:
-    ret_pct = (c_ret / c_del) * 100
-    exc_pct = (c_exc / c_del) * 100
-else:
-    ret_pct = 0
-    exc_pct = 0
+ret_pct = (c_ret / c_del) * 100 if c_del > 0 else 0
+exc_pct = (c_exc / c_del) * 100 if c_del > 0 else 0
 
 rp1, rp2, rp3 = st.columns(3)
 rp1.markdown(f"<div style='background:#1565c0;padding:16px;border-radius:12px;color:white'><div style='font-size:18px'>Delivered</div><div style='font-size:28px'>{c_del}</div><div>100%</div></div>", unsafe_allow_html=True)
@@ -423,7 +434,6 @@ if ads_df is not None and not ads_df.empty:
         if len(ads_rng) == 2:
             ads_f = ads_df[(ads_df['Deduction Duration'] >= ads_rng[0]) & (ads_df['Deduction Duration'] <= ads_rng[1])].copy()
             
-            # Merge with Daily Orders for Per Order Cost
             if order_date_col:
                 daily_orders = df_f.groupby(df_f[order_date_col].dt.date).size().reset_index(name='Daily Orders')
                 daily_orders.columns = ['Deduction Duration', 'Daily Orders']
@@ -436,7 +446,7 @@ if ads_df is not None and not ads_df.empty:
 
             ac1, ac2, ac3 = st.columns(3)
             ac1.markdown(_card_html("Total Ads Spend", ads_total, "#4a148c", "📣"), unsafe_allow_html=True)
-            ac2.markdown(_card_html("Total Orders", total_orders_period, "#6A1B9A", "📦"), unsafe_allow_html=True)
+            ac2.markdown(_card_html("Total Orders (Matched)", total_orders_period, "#6A1B9A", "📦"), unsafe_allow_html=True)
             ac3.markdown(_card_html("Avg Cost / Order", avg_per_order, "#8E24AA", "🏷️"), unsafe_allow_html=True)
 
             fig_ads = px.bar(ads_f, x='Deduction Duration', y='Total Ads Cost', title="Daily Ads Spend")
@@ -472,6 +482,6 @@ with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
     pd.DataFrame(profit_data).to_excel(writer, sheet_name='Profit Logic', index=False)
     if ads_table is not None: ads_table.to_excel(writer, sheet_name='Ads Analysis', index=False)
 
-st.download_button("⬇️ Download Excel Report", data=buffer.getvalue(), file_name="Meesho_Report_v17.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+st.download_button("⬇️ Download Excel Report", data=buffer.getvalue(), file_name="Meesho_Report_v18.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-st.success("✅ Dashboard v17: Claims/Recovery Zeros Ignored, Grand Total Restored.")
+st.success("✅ Dashboard v18: SKU Grouping Fixed (Auto-Update Restored).")
