@@ -1,13 +1,9 @@
-# 📦 Meesho Order Analysis Dashboard — Final Master v16
-# Updates:
-# 1. Claims/Recovery Count Bug Fixed (Only counts valid rows, not total).
-# 2. Recovery Box Restored.
-# 3. New "True Profit" Logic:
-#    - User Input for Product Cost.
-#    - Avg Return Cost Calculation.
-#    - Calculated Exchange Loss (Exchange Qty * Avg Return Cost).
-#    - Final Profit = (Delivered - Return - Calc_Exchange) - (Delivered_Qty * Product_Cost).
-# 4. Filters: Instructions added for 'Select All'.
+# 📦 Meesho Order Analysis Dashboard — Final Fixed v17
+# Fixes:
+# 1. Claims/Recovery Count: NOW IGNORES 0 values. Only counts real entries.
+# 2. Grand Total Box: Restored.
+# 3. True Profit Logic: Preserved.
+# 4. Filters: Logic refined for 'Select All'.
 # Date: 2026-01-29
 
 import os
@@ -22,12 +18,12 @@ import streamlit as st
 import plotly.express as px
 from PIL import Image
 
-__VERSION__ = "Power By Rehan — v16 (True Profit Logic)"
+__VERSION__ = "Power By Rehan — v17 (Counts Fixed)"
 
 # ---------------- PAGE SETUP ----------------
 st.set_page_config(layout="wide", page_title=f"📦 Meesho Dashboard — {__VERSION__}")
 st.title(f"📦 Meesho Order Analysis Dashboard — {__VERSION__}")
-st.caption("Features: True Profit Analysis | User Product Cost Input | Calculated Exchange Loss")
+st.caption("Fixes: Claims/Recovery Exact Count (Ignoring Zeros) | Grand Total Restored")
 
 # ---------------- HELPERS ----------------
 def extract_supplier_id_from_filename(filename: str) -> str:
@@ -137,6 +133,12 @@ for c in [order_date_col, dispatch_date_col]:
     if c and c in orders_df.columns:
         orders_df[c] = pd.to_datetime(orders_df[c], errors='coerce')
 
+# Clean Numeric Columns for Accurate Counting
+if claims_col:
+    orders_df[claims_col] = pd.to_numeric(orders_df[claims_col], errors='coerce').fillna(0)
+if recovery_col:
+    orders_df[recovery_col] = pd.to_numeric(orders_df[recovery_col], errors='coerce').fillna(0)
+
 # ---------------- FILTERS ----------------
 with st.sidebar.expander("🎛️ Advanced Filters", expanded=True):
     # 1. Status
@@ -181,17 +183,18 @@ with st.sidebar.expander("🎛️ Advanced Filters", expanded=True):
     else:
         sel_skus = None
     
-    # 3. Claims & Recovery
+    # 3. Claims & Recovery Filters
     if claims_col:
-        claims_opts = sorted([str(x) for x in orders_df[claims_col].dropna().unique().tolist()])
+        # Get only unique values that are NOT zero
+        claims_vals = sorted(orders_df[orders_df[claims_col] != 0][claims_col].unique().tolist())
         st.markdown("---")
-        sel_claims = st.multiselect("📂 Filter Claims", claims_opts, help="Leave empty to select All")
+        sel_claims = st.multiselect("📂 Filter Claims (Values)", claims_vals, help="Leave empty to select All (including zeros)")
     else:
         sel_claims = None
 
     if recovery_col:
-        rec_opts = sorted([str(x) for x in orders_df[recovery_col].dropna().unique().tolist()])
-        sel_recovery = st.multiselect("📂 Filter Recovery", rec_opts, help="Leave empty to select All")
+        rec_vals = sorted(orders_df[orders_df[recovery_col] != 0][recovery_col].unique().tolist())
+        sel_recovery = st.multiselect("📂 Filter Recovery (Values)", rec_vals, help="Leave empty to select All (including zeros)")
     else:
         sel_recovery = None
 
@@ -240,10 +243,10 @@ if catalog_id_col and sel_cats:
     df_f = df_f[df_f[catalog_id_col].astype(str).isin(sel_cats)]
 
 if claims_col and sel_claims:
-    df_f = df_f[df_f[claims_col].astype(str).isin(sel_claims)]
+    df_f = df_f[df_f[claims_col].isin(sel_claims)]
 
 if recovery_col and sel_recovery:
-    df_f = df_f[df_f[recovery_col].astype(str).isin(sel_recovery)]
+    df_f = df_f[df_f[recovery_col].isin(sel_recovery)]
 
 if 'All' not in sel_statuses:
     clean_stats = [s.upper() for s in sel_statuses if s]
@@ -276,17 +279,19 @@ c_can = counts.get('CANCELLED', 0)
 c_shp = counts.get('SHIPPED', 0)
 c_rto = counts.get('RTO', 0)
 
-# FIXED: Claims/Recovery Count (Count only non-zero/non-empty rows)
+# FIXED: Count only non-zero values for Claims and Recovery
 c_claim = 0
 if claims_col:
-    # Converting to numeric, coercing errors to NaN, then counting non-NaNs
-    c_claim = pd.to_numeric(df_f[claims_col], errors='coerce').count()
+    # Filter rows where Claims is NOT 0
+    c_claim = df_f[df_f[claims_col] != 0].shape[0]
 
 c_rec = 0
 if recovery_col:
-    c_rec = pd.to_numeric(df_f[recovery_col], errors='coerce').count()
+    # Filter rows where Recovery is NOT 0
+    c_rec = df_f[df_f[recovery_col] != 0].shape[0]
 
-total_rows = len(df_f)
+# FIXED: Grand Total (All filtered rows)
+grand_total_count = len(df_f)
 
 # Card Row 1
 status_labels = [('✅ Delivered', c_del, '#2e7d32'), ('↩️ Return', c_ret, '#c62828'), 
@@ -297,6 +302,11 @@ status_labels = [('✅ Delivered', c_del, '#2e7d32'), ('↩️ Return', c_ret, '
 cols = st.columns(8)
 for i, (l, v, c) in enumerate(status_labels):
     cols[i].markdown(f"<div style='background:{c};padding:8px;border-radius:8px;text-align:center;color:white;font-size:12px;'><b>{l}</b><br><span style='font-size:18px'>{v}</span></div>", unsafe_allow_html=True)
+
+# Grand Total Row
+st.markdown(f"""<div style='background-color:#0d47a1;padding:10px;border-radius:8px;text-align:center;color:white;margin-bottom:15px;margin-top:5px'>
+<div style="font-size:16px;font-weight:bold">📊 Grand Total Orders: {grand_total_count}</div>
+</div>""", unsafe_allow_html=True)
 
 # ---------------- FINANCIALS ----------------
 st.subheader("₹ Financial Summary")
@@ -312,10 +322,10 @@ if settle_amt_col:
     a_shp = get_sum('SHIPPED')
     a_rto = df_f[df_f[status_col].astype(str).str.upper() == 'RTO']['RTO Amount'].sum() if 'RTO Amount' in df_f.columns else 0
 
-    # Claims & Recovery Amount
-    a_claims = pd.to_numeric(df_f[claims_col], errors='coerce').fillna(0).sum() if claims_col else 0
-    raw_rec = pd.to_numeric(df_f[recovery_col], errors='coerce').fillna(0).sum() if recovery_col else 0
-    a_rec = abs(raw_rec)
+    # Claims & Recovery Amount (Sum everything)
+    a_claims = df_f[claims_col].sum() if claims_col else 0
+    # Recovery is negative in sheet, make it positive for display
+    a_rec = abs(df_f[recovery_col].sum()) if recovery_col else 0
 
     shipped_with_total = (a_del + a_can + a_shp) - (abs(a_ret) + abs(a_exc))
     u_total = (a_del + a_exc + a_can) - abs(a_ret)
@@ -344,7 +354,7 @@ if settle_amt_col:
         **Recovery:** Sum of 'Recovery' column (Absolute Value).
         """)
 
-# ---------------- TRUE PROFIT LOGIC (NEW) ----------------
+# ---------------- TRUE PROFIT LOGIC ----------------
 st.markdown("---")
 st.subheader("💹 True Profit Analysis (With Calculated Exchange Loss)")
 
@@ -384,8 +394,13 @@ kp3.markdown(_card_html("FINAL TRUE PROFIT", final_net_profit, "#0d47a1", "💰"
 # ---------------- RETURN % ----------------
 st.markdown("---")
 st.subheader("📊 Return & Exchange Percentage")
-ret_pct = (c_ret / c_del) * 100 if c_del > 0 else 0
-exc_pct = (c_exc / c_del) * 100 if c_del > 0 else 0
+
+if c_del > 0:
+    ret_pct = (c_ret / c_del) * 100
+    exc_pct = (c_exc / c_del) * 100
+else:
+    ret_pct = 0
+    exc_pct = 0
 
 rp1, rp2, rp3 = st.columns(3)
 rp1.markdown(f"<div style='background:#1565c0;padding:16px;border-radius:12px;color:white'><div style='font-size:18px'>Delivered</div><div style='font-size:28px'>{c_del}</div><div>100%</div></div>", unsafe_allow_html=True)
@@ -434,7 +449,7 @@ else:
 # ---------------- PREVIEW & EXPORTS ----------------
 st.markdown("---")
 st.subheader("🔎 Full Data Preview")
-if st.checkbox("Show All Data", value=True):
+if st.checkbox("Show All Filtered Data", value=True):
     st.dataframe(df_f, use_container_width=True)
 
 st.markdown("---")
@@ -443,12 +458,12 @@ c1, c2 = st.columns(2)
 with c1:
     status_counts_df = df_f[status_col].fillna("BLANK").value_counts().reset_index()
     status_counts_df.columns = ['Status', 'Count']
-    fig1 = px.bar(status_counts_df, x='Status', y='Count', text='Count')
+    fig1 = px.bar(status_counts_df, x='Status', y='Count', text='Count', title="Live Order Status")
     st.plotly_chart(fig1, use_container_width=True)
 with c2:
     if order_date_col:
         date_counts = df_f.groupby(df_f[order_date_col].dt.date).size().reset_index(name='Orders')
-        fig2 = px.bar(date_counts, x=order_date_col, y='Orders', text='Orders')
+        fig2 = px.bar(date_counts, x=order_date_col, y='Orders', text='Orders', title="Orders Timeline")
         st.plotly_chart(fig2, use_container_width=True)
 
 buffer = BytesIO()
@@ -457,6 +472,6 @@ with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
     pd.DataFrame(profit_data).to_excel(writer, sheet_name='Profit Logic', index=False)
     if ads_table is not None: ads_table.to_excel(writer, sheet_name='Ads Analysis', index=False)
 
-st.download_button("⬇️ Download Excel Report", data=buffer.getvalue(), file_name="Meesho_Report_v16.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+st.download_button("⬇️ Download Excel Report", data=buffer.getvalue(), file_name="Meesho_Report_v17.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-st.success("✅ Dashboard v16: True Profit Logic + Claims/Rec Fix + Ads Per Order Cost.")
+st.success("✅ Dashboard v17: Claims/Recovery Zeros Ignored, Grand Total Restored.")
