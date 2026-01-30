@@ -13,7 +13,7 @@ st.set_page_config(
     page_title="Courier Partner Delivery & Return Analysis",
     layout="wide"
 )
-st.title("📦 Courier Partner Delivery & Return Analysis")
+st.title("📦 Courier Partner Delivery & Return Analysis (with Select All Feature)")
 
 
 def add_grand_totals(df: pd.DataFrame) -> pd.DataFrame:
@@ -35,7 +35,7 @@ def add_totals_column(df: pd.DataFrame) -> pd.DataFrame:
 
 def pivot_to_pdf(pivot_df: pd.DataFrame,
                  title: str = "Summary") -> bytes:
-    """Generic summary tables के लिए simple PDF."""
+    """Generic summary tables ke liye simple PDF."""
     max_cols = len(pivot_df.columns) + 1
 
     orientation = "L" if max_cols > 7 else "P"
@@ -77,10 +77,7 @@ def pivot_to_pdf_stylegroup(pivot_df: pd.DataFrame,
                             title: str = "Style Group Reason Summary",
                             grand_total: int = 0) -> bytes:
     """
-    Style Group reasons के लिए special PDF:
-    - Reason column wide
-    - Text wrapping
-    - नीचे TOTAL row में grand_total दिखे
+    Style Group reasons ke liye special PDF.
     """
     pdf = FPDF(orientation="L", unit="mm", format="A4")
     pdf.add_page()
@@ -144,7 +141,6 @@ def pivot_to_pdf_stylegroup(pivot_df: pd.DataFrame,
         pdf.set_fill_color(200, 200, 200)
 
         pdf.cell(reason_col_width, 10, "TOTAL", border=1, align="C", fill=True)
-        # केवल पहला style-group column का total दिखा रहे हैं
         pdf.cell(other_col_width, 10, str(int(grand_total)), border=1, align="C", fill=True)
         pdf.ln()
 
@@ -192,7 +188,7 @@ if uploaded_files:
     # ----------------- Sidebar Filters -----------------
     st.sidebar.header("Filters")
 
-    # Date filter
+    # 1. Date filter
     if "Return Created Date" in df_all.columns:
         all_dates = sorted(
             str(x) for x in df_all["Return Created Date"].dropna().unique()
@@ -205,7 +201,7 @@ if uploaded_files:
     else:
         selected_dates = []
 
-    # Courier Partner filter
+    # 2. Courier Partner filter
     if "Courier Partner" in df_all.columns:
         all_couriers = sorted(
             str(x) for x in df_all["Courier Partner"].dropna().unique()
@@ -218,7 +214,7 @@ if uploaded_files:
     else:
         selected_couriers = []
 
-    # Type of Return filter
+    # 3. Type of Return filter
     if "Type of Return" in df_all.columns:
         all_types = sorted(
             str(x) for x in df_all["Type of Return"].dropna().unique()
@@ -231,38 +227,132 @@ if uploaded_files:
     else:
         selected_types = []
 
-    # SKU filter
+    # -----------------------------------------------------------------
+    # 4. SKU Grouping - WITH SELECT ALL FEATURE
+    # -----------------------------------------------------------------
+    final_sku_list = [] 
+    
     if "SKU" in df_all.columns:
-        all_skus = sorted(
-            str(x) for x in df_all["SKU"].dropna().unique()
+        df_all["SKU"] = df_all["SKU"].astype(str)
+        all_skus = sorted(df_all["SKU"].dropna().unique())
+
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 📦 SKU Group Manager")
+
+        # --- Session State Init ---
+        if 'sku_groups' not in st.session_state:
+            st.session_state['sku_groups'] = []
+        
+        # --- NEW: Creator Interface with SELECT ALL ---
+        with st.sidebar.expander("➕ Create New Group (Smart Select)", expanded=False):
+            st.caption("Step 1: Search Keyword")
+            
+            # Using text_input to filter locally first
+            search_keyword = st.text_input("Enter Keyword (e.g. Ramesh)")
+            
+            # Find Matches
+            found_matches = []
+            if search_keyword:
+                found_matches = [s for s in all_skus if search_keyword.lower() in s.lower()]
+            
+            st.caption(f"Step 2: Review Selection ({len(found_matches)} found)")
+            
+            # --- SELECT ALL BUTTONS LOGIC ---
+            col_sel1, col_sel2 = st.columns(2)
+            
+            # Callbacks to handle "Select All" / "Deselect All"
+            def select_all_matches():
+                st.session_state.preview_multiselect = found_matches
+            
+            def deselect_all_matches():
+                st.session_state.preview_multiselect = []
+            
+            # Check if key exists to prevent error on first run
+            if "preview_multiselect" not in st.session_state:
+                st.session_state.preview_multiselect = []
+
+            # Display Buttons
+            with col_sel1:
+                st.button("✅ Select All", on_click=select_all_matches, use_container_width=True)
+            with col_sel2:
+                st.button("❌ Deselect All", on_click=deselect_all_matches, use_container_width=True)
+
+            # The Main Multiselect Box
+            selected_for_group = st.multiselect(
+                "Verify SKUs to add:",
+                options=found_matches,
+                key="preview_multiselect" 
+                # Note: We removed 'default' here because 'key' + state controls it now
+            )
+            
+            st.caption("Step 3: Name & Save")
+            group_name_input = st.text_input("Group Name")
+            
+            def save_filtered_group():
+                if group_name_input and selected_for_group:
+                    # Logic to save
+                    found = False
+                    for g in st.session_state["sku_groups"]:
+                        if g["name"] == group_name_input:
+                            g["skus"] = selected_for_group
+                            found = True
+                            break
+                    if not found:
+                        st.session_state["sku_groups"].append({"name": group_name_input, "skus": selected_for_group})
+                    st.toast(f"✅ Group '{group_name_input}' Saved with {len(selected_for_group)} SKUs!")
+                else:
+                    st.toast("⚠️ Name and valid selection required.")
+            
+            st.button("💾 Save Verified Group", on_click=save_filtered_group)
+            
+            # Delete button logic
+            st.markdown("---")
+            if st.button("🧹 Clear All Groups"):
+                st.session_state["sku_groups"] = []
+                st.rerun()
+
+        # -------------------------------------------------------------
+        # SELECTION & VIEWING LOGIC
+        # -------------------------------------------------------------
+        st.sidebar.markdown("#### Select & View Groups")
+        
+        group_options = [f"{g['name']} ({len(g['skus'])})" for g in st.session_state['sku_groups']]
+        selected_group_labels = st.sidebar.multiselect("1. Select Saved Groups", group_options)
+        
+        # Calculate Group SKUs
+        skus_from_groups = []
+        for label in selected_group_labels:
+            actual_name = label.rsplit(" (", 1)[0]
+            for g in st.session_state['sku_groups']:
+                if g['name'] == actual_name:
+                    skus_from_groups.extend(g['skus'])
+                    break
+        skus_from_groups = list(set(skus_from_groups))
+
+        # --- View What's Inside the Selected Group ---
+        if skus_from_groups:
+            with st.sidebar.expander(f"👁️ View SKUs in Selection ({len(skus_from_groups)})"):
+                st.dataframe(pd.DataFrame(skus_from_groups, columns=["Included SKUs"]), hide_index=True)
+
+        # -------------------------------------------------------------
+        # MANUAL EXTRAS (Smart Filter)
+        # -------------------------------------------------------------
+        # Show only SKUs that are NOT in the groups
+        available_extra_options = sorted(list(set(all_skus) - set(skus_from_groups)))
+        
+        manual_skus = st.sidebar.multiselect(
+            "2. Add Extra SKUs (Unique only)", 
+            options=available_extra_options,
+            help="Allows adding single SKUs that are not in the selected groups."
         )
-
-        st.sidebar.write("SKU Filters:")
-
-        sku_search = st.sidebar.text_input("Search SKU")
-
-        if sku_search:
-            filtered_skus = [s for s in all_skus if sku_search.lower() in s.lower()]
+        
+        # Final Combine
+        final_sku_list = list(set(skus_from_groups) | set(manual_skus))
+        
+        if final_sku_list:
+            st.sidebar.success(f"✨ Analyzing {len(final_sku_list)} SKUs")
         else:
-            filtered_skus = all_skus
-
-        col_sku1, col_sku2 = st.sidebar.columns(2)
-        if col_sku1.button("Select All SKUs"):
-            st.session_state["selected_skus"] = filtered_skus
-        if col_sku2.button("Clear All SKUs"):
-            st.session_state["selected_skus"] = []
-
-        if "selected_skus" not in st.session_state:
-            st.session_state["selected_skus"] = filtered_skus
-
-        selected_skus = st.sidebar.multiselect(
-            "Select SKUs",
-            filtered_skus,
-            default=st.session_state["selected_skus"],
-            key="selected_skus"
-        )
-    else:
-        selected_skus = []
+            st.sidebar.text("Showing All Data")
 
     # ----------------- Apply Filters -----------------
     df_filtered = df_all.copy()
@@ -282,9 +372,10 @@ if uploaded_files:
             df_filtered["Type of Return"].isin(selected_types)
         ]
 
-    if "SKU" in df_filtered.columns and selected_skus:
+    # FORCE FILTER using the calculated list
+    if "SKU" in df_filtered.columns and final_sku_list:
         df_filtered = df_filtered[
-            df_filtered["SKU"].isin(selected_skus)
+            df_filtered["SKU"].astype(str).isin(final_sku_list)
         ]
 
     # ----------------- KPI Boxes -----------------
@@ -499,7 +590,7 @@ if uploaded_files:
                 use_container_width=True
             )
 
-            # PDF के लिए pivot (index = Detailed Return Reason)
+            # PDF ke liye pivot (index = Detailed Return Reason)
             groupsummary_pivot = groupsummary.pivot_table(
                 index="Detailed Return Reason",
                 columns="Style Group",
