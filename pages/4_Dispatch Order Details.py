@@ -2,6 +2,10 @@ import streamlit as st
 import pandas as pd
 import io
 
+if "logged_in" not in st.session_state or not st.session_state.logged_in:
+    st.warning("Please Login")
+    st.stop()
+
 # Page config
 st.set_page_config(page_title="Meesho Order Matcher", layout="wide")
 
