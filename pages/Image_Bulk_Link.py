@@ -2,6 +2,10 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
+if "logged_in" not in st.session_state or not st.session_state.logged_in:
+    st.warning("Please Login")
+    st.stop()
+
 st.set_page_config(
     page_title="Direct Paste Image Listing Tool",
     layout="wide"
