@@ -19,6 +19,10 @@ import streamlit as st
 import plotly.express as px
 from PIL import Image
 
+if "logged_in" not in st.session_state or not st.session_state.logged_in:
+    st.warning("Please Login")
+    st.stop()
+
 __VERSION__ = "v21"
 
 # ---------------- PAGE SETUP ----------------
