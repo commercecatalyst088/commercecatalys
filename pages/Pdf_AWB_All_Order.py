@@ -12,6 +12,9 @@ import io
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
+if "logged_in" not in st.session_state or not st.session_state.logged_in:
+    st.warning("Please Login")
+    st.stop()
 # ------------------------------------------------------------
 # PAGE CONFIG
 # ------------------------------------------------------------
