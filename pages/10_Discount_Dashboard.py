@@ -6,7 +6,7 @@ from io import BytesIO
 
 st.set_page_config(page_title="Supplier Discount Analysis", layout="wide")
 
-st.title("Supplier Discount Analysis Dashboard")
+st.title("Supplier Discount Analysis Dashboard (With SKU Groups)")
 
 st.markdown(
     """
@@ -118,15 +118,120 @@ if isinstance(start_date, datetime):
 if isinstance(end_date, datetime):
     end_date = end_date.date()
 
+# ================= SKU Grouping System (INTEGRATED) =================
+# Prepare SKU List
+df[COL_SKU] = df[COL_SKU].astype(str)
 all_skus = sorted(df[COL_SKU].dropna().unique().tolist())
-selected_skus = st.sidebar.multiselect(
-    "SKU filter (Global, optional)", options=all_skus, default=all_skus
+
+# --- Session State Init ---
+if 'sku_groups' not in st.session_state:
+    st.session_state['sku_groups'] = []
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📦 SKU Group Manager")
+
+# --- Group Creator Interface (Search -> Select All -> Save) ---
+with st.sidebar.expander("➕ Create New Group", expanded=False):
+    st.caption("Step 1: Search Keyword")
+    search_keyword = st.text_input("Enter Keyword (e.g. Kurti)", key="grp_search_box")
+    
+    # Find Matches
+    found_matches = []
+    if search_keyword:
+        found_matches = [s for s in all_skus if search_keyword.lower() in s.lower()]
+    
+    st.caption(f"Step 2: Review Selection ({len(found_matches)} found)")
+    
+    # --- SELECT ALL BUTTONS LOGIC ---
+    col_sel1, col_sel2 = st.columns(2)
+    
+    def select_all_matches():
+        st.session_state.preview_multiselect = found_matches
+    
+    def deselect_all_matches():
+        st.session_state.preview_multiselect = []
+    
+    if "preview_multiselect" not in st.session_state:
+        st.session_state.preview_multiselect = []
+
+    with col_sel1:
+        st.button("✅ Select All", on_click=select_all_matches, use_container_width=True)
+    with col_sel2:
+        st.button("❌ Deselect All", on_click=deselect_all_matches, use_container_width=True)
+
+    selected_for_group = st.multiselect(
+        "Verify SKUs to add:",
+        options=found_matches,
+        key="preview_multiselect"
+    )
+    
+    st.caption("Step 3: Name & Save")
+    group_name_input = st.text_input("Group Name", key="grp_name_box")
+    
+    def save_filtered_group():
+        if group_name_input and selected_for_group:
+            found = False
+            for g in st.session_state["sku_groups"]:
+                if g["name"] == group_name_input:
+                    g["skus"] = selected_for_group
+                    found = True
+                    break
+            if not found:
+                st.session_state["sku_groups"].append({"name": group_name_input, "skus": selected_for_group})
+            st.toast(f"✅ Group '{group_name_input}' Saved with {len(selected_for_group)} SKUs!")
+        else:
+            st.toast("⚠️ Name and valid selection required.")
+    
+    st.button("💾 Save Verified Group", on_click=save_filtered_group)
+    
+    st.markdown("---")
+    if st.button("🧹 Clear All Groups"):
+        st.session_state["sku_groups"] = []
+        st.rerun()
+
+# --- Group Selection Logic ---
+st.sidebar.markdown("#### Select & View Groups")
+
+group_options = [f"{g['name']} ({len(g['skus'])})" for g in st.session_state['sku_groups']]
+selected_group_labels = st.sidebar.multiselect("1. Select Saved Groups", group_options)
+
+skus_from_groups = []
+for label in selected_group_labels:
+    actual_name = label.rsplit(" (", 1)[0]
+    for g in st.session_state['sku_groups']:
+        if g['name'] == actual_name:
+            skus_from_groups.extend(g['skus'])
+            break
+skus_from_groups = list(set(skus_from_groups))
+
+# View Group Contents
+if skus_from_groups:
+    with st.sidebar.expander(f"👁️ View SKUs in Selection ({len(skus_from_groups)})"):
+        st.dataframe(pd.DataFrame(skus_from_groups, columns=["Included SKUs"]), hide_index=True)
+
+# --- Manual Extras ---
+available_extra_options = sorted(list(set(all_skus) - set(skus_from_groups)))
+manual_skus = st.sidebar.multiselect(
+    "2. Add Extra SKUs (Unique only)", 
+    options=available_extra_options,
+    help="Allows adding single SKUs that are not in the selected groups."
 )
 
+# Final Combine
+final_sku_list = list(set(skus_from_groups) | set(manual_skus))
+
+# --- Apply Filters ---
 mask_date_global = (df[COL_ORDER_DATE].dt.date >= start_date) & (
     df[COL_ORDER_DATE].dt.date <= end_date
 )
-mask_sku_global = df[COL_SKU].isin(selected_skus) if selected_skus else True
+
+# Apply SKU Filter if selected
+if final_sku_list:
+    mask_sku_global = df[COL_SKU].isin(final_sku_list)
+    st.sidebar.success(f"✨ Filtering by {len(final_sku_list)} SKUs")
+else:
+    mask_sku_global = True
+    st.sidebar.text("Showing All Data")
 
 # NOTE: Yahan pehle hum sirf discount > 0 filter kar rahe the.
 # Ab hum saara filtered data rakhenge aur neeche split karenge.
