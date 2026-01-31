@@ -4,6 +4,10 @@ from datetime import datetime
 from fpdf import FPDF
 from io import BytesIO
 
+if "logged_in" not in st.session_state or not st.session_state.logged_in:
+    st.warning("Please Login")
+    st.stop()
+    
 st.set_page_config(page_title="Supplier Discount Analysis", layout="wide")
 
 st.title("Supplier Discount Analysis Dashboard (With SKU Groups)")
