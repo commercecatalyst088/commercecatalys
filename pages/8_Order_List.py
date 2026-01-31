@@ -11,6 +11,10 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 
+if "logged_in" not in st.session_state or not st.session_state.logged_in:
+    st.warning("Please Login")
+    st.stop()
+
 st.set_page_config(page_title='SKU Processor', layout='wide')
 
 # ---------------- Color Lists ----------------
