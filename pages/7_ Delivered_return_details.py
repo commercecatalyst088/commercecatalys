@@ -4,6 +4,10 @@ from io import BytesIO
 from fpdf import FPDF
 import tempfile
 
+if "logged_in" not in st.session_state or not st.session_state.logged_in:
+    st.warning("Please Login")
+    st.stop()
+
 # ================== Streamlit Config ==================
 st.set_page_config(page_title="Courier Partner Delivery & Return Analysis", layout="wide")
 st.title("📦 Courier Partner Delivery & Return Analysis — Final Merged (Global SKU Filter)")
